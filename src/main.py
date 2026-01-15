@@ -411,6 +411,7 @@ class WhisperDictationApp(rumps.App):
             text = ""
             for segment in segments:
                 text += segment.text
+            text = text.strip()  # Remove leading/trailing whitespace (Whisper adds leading space)
 
             transcribe_time = time.time() - transcribe_start
             logger.info(f"Transcription took {transcribe_time:.2f}s (audio: {info.duration:.1f}s, ratio: {transcribe_time/info.duration:.2f}x)")
