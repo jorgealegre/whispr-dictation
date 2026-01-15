@@ -48,8 +48,8 @@ class RecordingIndicator:
             return
 
         try:
-            # Convert bytes to numpy array
-            audio_array = np.frombuffer(audio_data, dtype=np.int16)
+            # Convert bytes to numpy array, then to float to avoid integer overflow when squaring
+            audio_array = np.frombuffer(audio_data, dtype=np.int16).astype(np.float64)
 
             # Calculate RMS (Root Mean Square) level
             rms = np.sqrt(np.mean(audio_array**2))

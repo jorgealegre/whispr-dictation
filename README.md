@@ -7,11 +7,11 @@ A macOS application that converts speech to text using OpenAI's Whisper model ru
 ## Features
 
 - System tray (menu bar) application that runs in the background
-- Global hotkey (Globe/Function key) to trigger dictation
+- Global hotkey (Globe/Function key or Right Shift) to trigger dictation
 - Transcribes speech to text using OpenAI's Whisper model locally
-- Automatically pastes transcribed text at your cursor position
-- **NEW**: AI-powered text enhancement - when you have text selected, your voice becomes an instruction to modify that text using AWS Bedrock (Claude)
+- Automatically types transcribed text at your cursor position
 - Visual feedback with menu bar icon status
+- Configurable model size for speed vs accuracy tradeoff
 
 ## Setup and Installation
 
@@ -29,14 +29,7 @@ pip install -r requirements.txt
 brew install portaudio
 ```
 
-3. Set up AWS Bedrock (optional - for AI text enhancement):
-
-```
-cp .env.example .env
-# Edit .env and add your AWS credentials
-```
-
-4. Run the application in development mode:
+3. Run the application in development mode:
 
 ```
 python src/main.py
@@ -66,24 +59,9 @@ nohup ./run.sh >/dev/null 2>&1 & disown
 2. Press the Globe key or Function key on your keyboard to start recording.
 3. Speak clearly into your microphone.
 4. Press the Globe/Function key again to stop recording.
-5. The app will transcribe your speech and automatically paste it at your current cursor position.
+5. The app will transcribe your speech and automatically type it at your current cursor position.
 
-### AI Text Enhancement (New Feature)
-
-When you have AWS Bedrock configured, you can use voice commands to modify selected text:
-
-1. **Select text** in any application (highlight the text you want to modify)
-2. **Press the Globe/Function key** to start recording
-3. **Give a voice instruction** like:
-   - "Make this more professional"
-   - "Translate this to Spanish"
-   - "Summarize this paragraph"
-   - "Fix the grammar"
-   - "Make this sound friendlier"
-4. **Press the Globe/Function key again** to stop recording
-5. The selected text will be **automatically replaced** with the AI-enhanced version
-
-**Note**: If no text is selected, the app behaves normally and just inserts the transcribed text.
+**Alternative**: Hold Right Shift to record (release after 0.75s to process, or before to discard).
 
 You can also interact with the app through the menu bar icon:
 
@@ -95,16 +73,48 @@ You can also interact with the app through the menu bar icon:
 
 The app requires the following permissions:
 
-- Microphone access (to record your speech).  
+- Microphone access (to record your speech).
   Go to System Preferences → Security & Privacy → Privacy → Microphone and add your Terminal or the app.
-- Accessibility access (to simulate keyboard presses for pasting).  
+- Accessibility access (to simulate keyboard presses for pasting).
   Go to System Preferences → Security & Privacy → Privacy → Accessibility and add your Terminal or the app.
 
 ## Requirements
 
 - macOS 10.14 or later
 - Microphone
-- AWS Account with Bedrock access (optional - for AI text enhancement feature)
+
+## Performance Tuning
+
+The app supports several environment variables to tune transcription speed vs accuracy:
+
+| Variable | Default | Options | Description |
+|----------|---------|---------|-------------|
+| `WHISPER_MODEL` | `small.en` | `tiny.en`, `base.en`, `small.en`, `medium.en`, `large-v3` | Smaller = faster, larger = more accurate |
+| `WHISPER_COMPUTE_TYPE` | `int8` | `int8`, `float32` | `int8` is ~2x faster with minimal quality loss |
+| `WHISPER_BEAM_SIZE` | `1` | `1`-`5` | `1` = greedy (fastest), `5` = beam search (most accurate) |
+| `WHISPER_VAD_FILTER` | `true` | `true`, `false` | Skips silent portions for faster processing |
+
+### Speed Comparison (approximate)
+
+| Model | Relative Speed | Quality |
+|-------|----------------|---------|
+| `tiny.en` | ~10x faster | Basic - good for quick notes |
+| `base.en` | ~7x faster | Good - handles most dictation well |
+| `small.en` | ~4x faster | Very good - recommended balance |
+| `medium.en` | 1x (baseline) | Excellent - original default |
+| `large-v3` | ~0.5x (slower) | Best - for high accuracy needs |
+
+### Example: Maximum Speed
+
+```bash
+WHISPER_MODEL=tiny.en WHISPER_BEAM_SIZE=1 ./run.sh
+```
+
+### Example: Maximum Accuracy
+
+```bash
+WHISPER_MODEL=medium.en WHISPER_BEAM_SIZE=5 WHISPER_COMPUTE_TYPE=float32 ./run.sh
+```
 
 ## Troubleshooting
 

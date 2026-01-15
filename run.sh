@@ -9,6 +9,12 @@ echo "The app will now open. Look for the microphone icon (🎙️) in your menu
 echo "Press the Globe/Fn key (bottom right corner of keyboard) to start/stop recording."
 echo "Or hold Right Shift to record instantly (release after 0.75s to process, before to discard)."
 echo ""
+echo "Performance tuning (set env vars to customize):"
+echo "  WHISPER_MODEL=small.en      # tiny.en|base.en|small.en|medium.en|large-v3"
+echo "  WHISPER_COMPUTE_TYPE=int8   # int8 (fast) or float32 (accurate)"
+echo "  WHISPER_BEAM_SIZE=1         # 1=fastest, 5=most accurate"
+echo "  WHISPER_VAD_FILTER=true     # Skip silence for faster processing"
+echo ""
 echo "Press Ctrl+C to quit the app."
 
 # Run the dictation app

@@ -11,12 +11,42 @@ from pynput import keyboard
 from pynput.keyboard import Key, Controller
 import faster_whisper
 import signal
-from text_selection import TextSelection
-from bedrock_client import BedrockClient
 from recording_indicator import RecordingIndicator
 from logger_config import setup_logging
 
 logger = setup_logging()
+
+# ============================================================================
+# PERFORMANCE CONFIGURATION
+# ============================================================================
+# Model options (speed vs accuracy tradeoff):
+#   - "tiny.en"   : Fastest (~10x), basic quality
+#   - "base.en"   : Very fast (~7x), good quality
+#   - "small.en"  : Fast (~4x), very good quality ← RECOMMENDED
+#   - "medium.en" : Slower (~1x), excellent quality
+#   - "large-v3"  : Slowest, best quality
+WHISPER_MODEL = os.getenv("WHISPER_MODEL", "small.en")
+
+# Compute type for inference (int8 is faster on CPU with minimal quality loss)
+# Options: "default", "int8", "int8_float16", "float16", "float32"
+WHISPER_COMPUTE_TYPE = os.getenv("WHISPER_COMPUTE_TYPE", "int8")
+
+# Beam size: 1 = greedy (fastest), 5 = beam search (more accurate)
+WHISPER_BEAM_SIZE = int(os.getenv("WHISPER_BEAM_SIZE", "1"))
+
+# VAD (Voice Activity Detection) - skips silence for faster processing
+WHISPER_VAD_FILTER = os.getenv("WHISPER_VAD_FILTER", "true").lower() == "true"
+# ============================================================================
+
+# Print loaded configuration
+logger.info("=" * 50)
+logger.info("WHISPER DICTATION - Configuration")
+logger.info("=" * 50)
+logger.info(f"  WHISPER_MODEL        = {WHISPER_MODEL}")
+logger.info(f"  WHISPER_COMPUTE_TYPE = {WHISPER_COMPUTE_TYPE}")
+logger.info(f"  WHISPER_BEAM_SIZE    = {WHISPER_BEAM_SIZE}")
+logger.info(f"  WHISPER_VAD_FILTER   = {WHISPER_VAD_FILTER}")
+logger.info("=" * 50)
 
 # Set up a global flag for handling SIGINT
 exit_flag = False
@@ -36,10 +66,10 @@ signal.signal(signal.SIGTERM, signal_handler)
 class WhisperDictationApp(rumps.App):
     def __init__(self):
         super(WhisperDictationApp, self).__init__("🎙️", quit_button=rumps.MenuItem("Quit"))
-        
+
         # Status item
         self.status_item = rumps.MenuItem("Status: Ready")
-        
+
         # Add menu items - use a single menu item for toggling recording
         self.recording_menu_item = rumps.MenuItem("Start Recording")
 
@@ -58,12 +88,6 @@ class WhisperDictationApp(rumps.App):
         self.setup_microphone_menu()
 
         self.menu = [self.recording_menu_item, self.mic_submenu, None, self.status_item]
-        
-        # Initialize text selection handler
-        self.text_selector = TextSelection()
-        
-        # Initialize Bedrock client
-        self.bedrock_client = BedrockClient()
 
         # Initialize recording indicator
         self.indicator = RecordingIndicator()
@@ -73,13 +97,13 @@ class WhisperDictationApp(rumps.App):
         self.model = None
         self.load_model_thread = threading.Thread(target=self.load_model)
         self.load_model_thread.start()
-        
+
         # Audio recording parameters
         self.format = pyaudio.paInt16
         self.channels = 1
         self.rate = 16000
         self.chunk = 1024
-        
+
         # Hotkey configuration - we'll listen for globe/fn key (vk=63)
         self.trigger_key = 63  # Key code for globe/fn key
 
@@ -89,7 +113,7 @@ class WhisperDictationApp(rumps.App):
         self.shift_threshold = 0.75  # Minimum hold time in seconds
 
         self.setup_global_monitor()
-        
+
         # Show initial message
         logger.info("Started WhisperDictation app. Look for 🎙️ in your menu bar.")
         logger.info("Press and hold the Globe/Fn key (vk=63) to record. Release to transcribe.")
@@ -98,17 +122,11 @@ class WhisperDictationApp(rumps.App):
         logger.info("You may need to grant this app accessibility permissions in System Preferences.")
         logger.info("Go to System Preferences → Security & Privacy → Privacy → Accessibility")
         logger.info("and add your terminal or the built app to the list.")
-        
-        # Test Bedrock connection
-        if self.bedrock_client.is_available():
-            logger.info("✓ Bedrock client initialized successfully")
-        else:
-            logger.warning("⚠ Bedrock client not available - text enhancement features disabled")
-        
+
         # Start a watchdog thread to check for exit flag
         self.watchdog = threading.Thread(target=self.check_exit_flag, daemon=True)
         self.watchdog.start()
-    
+
     def check_exit_flag(self):
         """Monitor the exit flag and terminate the app when set"""
         while True:
@@ -119,7 +137,7 @@ class WhisperDictationApp(rumps.App):
                 os._exit(0)
                 break
             time.sleep(0.5)
-    
+
     def cleanup(self):
         """Clean up resources before exiting"""
         logger.info("Cleaning up resources...")
@@ -128,27 +146,32 @@ class WhisperDictationApp(rumps.App):
             self.recording = False
             if hasattr(self, 'recording_thread') and self.recording_thread.is_alive():
                 self.recording_thread.join(timeout=1.0)
-        
+
         # Close PyAudio
         if hasattr(self, 'audio'):
             try:
                 self.audio.terminate()
             except:
                 pass
-    
+
     def load_model(self):
         self.title = "🎙️ (Loading...)"
-        self.status_item.title = "Status: Loading Whisper model..."
+        self.status_item.title = f"Status: Loading {WHISPER_MODEL}..."
         try:
-            self.model = faster_whisper.WhisperModel("medium.en")
+            logger.info(f"Loading Whisper model: {WHISPER_MODEL} (compute_type={WHISPER_COMPUTE_TYPE})")
+            self.model = faster_whisper.WhisperModel(
+                WHISPER_MODEL,
+                device="cpu",  # Use CPU on macOS (MPS not yet supported by CTranslate2)
+                compute_type=WHISPER_COMPUTE_TYPE,
+            )
             self.title = "🎙️"
             self.status_item.title = "Status: Ready"
-            logger.info("Whisper model loaded successfully!")
+            logger.info(f"Whisper model '{WHISPER_MODEL}' loaded successfully!")
         except Exception as e:
             self.title = "🎙️ (Error)"
             self.status_item.title = "Status: Error loading model"
             logger.error(f"Error loading model: {e}")
-    
+
     def setup_microphone_menu(self):
         """Setup the microphone selection submenu"""
         self.mic_submenu = rumps.MenuItem("Microphone")
@@ -211,11 +234,11 @@ class WhisperDictationApp(rumps.App):
         self.title = "🎙️"
         self.status_item.title = "Status: Recording discarded (too short)"
         logger.info("Recording discarded - held for less than threshold")
-    
+
     def monitor_keys(self):
         # Track state of key 63 (Globe/Fn key)
         self.is_recording_with_key63 = False
-        
+
         def on_press(key):
             # If Right Shift is held and another key is pressed, cancel recording (user is typing)
             if self.shift_held and key != Key.shift_r:
@@ -235,7 +258,7 @@ class WhisperDictationApp(rumps.App):
                     self.shift_press_time = time.time()
                     self.shift_held = True
                     self.start_recording()
-        
+
         def on_release(key):
             if hasattr(key, 'vk'):
                 logger.debug(f"Key with vk={key.vk} released")
@@ -260,7 +283,7 @@ class WhisperDictationApp(rumps.App):
                 else:
                     logger.info(f"Right Shift released after {hold_duration:.2f}s - processing")
                     self.stop_recording()
-        
+
         try:
             with keyboard.Listener(on_press=on_press, on_release=on_release) as listener:
                 logger.debug(f"Keyboard listener started - listening for key events")
@@ -270,7 +293,7 @@ class WhisperDictationApp(rumps.App):
         except Exception as e:
             logger.error(f"Error with keyboard listener: {e}")
             logger.error("Please check accessibility permissions in System Preferences")
-    
+
     @rumps.clicked("Start Recording")  # This will be matched by title
     def toggle_recording(self, sender):
         if not self.recording:
@@ -279,7 +302,7 @@ class WhisperDictationApp(rumps.App):
         else:
             self.stop_recording()
             sender.title = "Start Recording"
-    
+
     def start_recording(self):
         if not hasattr(self, 'model') or self.model is None:
             logger.warning("Model not loaded. Please wait for the model to finish loading.")
@@ -300,7 +323,7 @@ class WhisperDictationApp(rumps.App):
         # Start recording thread
         self.recording_thread = threading.Thread(target=self.record_audio)
         self.recording_thread.start()
-    
+
     def stop_recording(self):
         self.recording = False
         if hasattr(self, 'recording_thread'):
@@ -317,7 +340,7 @@ class WhisperDictationApp(rumps.App):
         # Process in background
         transcribe_thread = threading.Thread(target=self.process_recording)
         transcribe_thread.start()
-    
+
     def process_recording(self):
         # Transcribe and insert text
         try:
@@ -327,7 +350,7 @@ class WhisperDictationApp(rumps.App):
             self.status_item.title = "Status: Error during transcription"
         finally:
             self.title = "🎙️"  # Reset title
-    
+
     def record_audio(self):
         # Build kwargs for audio stream
         stream_kwargs = {
@@ -352,64 +375,50 @@ class WhisperDictationApp(rumps.App):
 
         stream.stop_stream()
         stream.close()
-    
+
     def transcribe_audio(self):
         if not self.frames:
             self.title = "🎙️"
             self.status_item.title = "Status: No audio recorded"
             logger.warning("No audio recorded")
             return
-            
+
         # Save the recorded audio to a temporary file
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_file:
             temp_filename = temp_file.name
-        
+
         with wave.open(temp_filename, 'wb') as wf:
             wf.setnchannels(self.channels)
             wf.setsampwidth(self.audio.get_sample_size(self.format))
             wf.setframerate(self.rate)
             wf.writeframes(b''.join(self.frames))
-        
+
         logger.debug("Audio saved to temporary file. Transcribing...")
-        
+
         # Transcribe with Whisper
         try:
-            segments, _ = self.model.transcribe(temp_filename, beam_size=5)
-            
+            transcribe_start = time.time()
+            segments, info = self.model.transcribe(
+                temp_filename,
+                beam_size=WHISPER_BEAM_SIZE,
+                vad_filter=WHISPER_VAD_FILTER,
+                vad_parameters=dict(
+                    min_silence_duration_ms=300,  # Shorter silence threshold
+                    speech_pad_ms=200,            # Padding around speech
+                ),
+            )
+
             text = ""
             for segment in segments:
                 text += segment.text
-            
+
+            transcribe_time = time.time() - transcribe_start
+            logger.info(f"Transcription took {transcribe_time:.2f}s (audio: {info.duration:.1f}s, ratio: {transcribe_time/info.duration:.2f}x)")
+
             if text:
-                # Check for selected text to potentially enhance
-                selected_text = self.text_selector.get_selected_text()
-                logger.debug(f"Selected text: {selected_text}")
-
-                if selected_text and self.bedrock_client.is_available():
-                    logger.info(f"Selected text detected: {selected_text[:50]}...")
-                    logger.info(f"Voice instruction: {text}")
-
-                    try:
-                        # Use Bedrock to enhance the selected text
-                        self.status_item.title = "Status: Enhancing text with AI..."
-                        enhanced_text = self.bedrock_client.enhance_text(text, selected_text)
-
-                        # Replace selected text with enhanced version
-                        self.text_selector.replace_selected_text(enhanced_text)
-                        logger.info(f"Enhanced text: {enhanced_text}")
-                        self.status_item.title = f"Status: Enhanced: {enhanced_text[:30]}..."
-
-                    except Exception as e:
-                        logger.error(f"Error enhancing text: {e}")
-                        # Fallback to normal text insertion
-                        self.insert_text(text)
-                        logger.info(f"Transcription (fallback): {text}")
-                        self.status_item.title = f"Status: Transcribed: {text[:30]}..."
-                else:
-                    # No selected text or Bedrock unavailable - normal insertion
-                    self.insert_text(text)
-                    logger.info(f"Transcription: {text}")
-                    self.status_item.title = f"Status: Transcribed: {text[:30]}..."
+                self.insert_text(text)
+                logger.info(f"Transcription: {text}")
+                self.status_item.title = f"Status: Transcribed: {text[:30]}..."
             else:
                 logger.warning("No speech detected")
                 self.status_item.title = "Status: No speech detected"
@@ -420,13 +429,13 @@ class WhisperDictationApp(rumps.App):
         finally:
             # Clean up the temporary file
             os.unlink(temp_filename)
-    
+
     def insert_text(self, text):
         # Type text at cursor position without altering the clipboard
         logger.debug("Typing text at cursor position...")
         self.keyboard_controller.type(text)
         logger.debug("Text typed successfully")
-    
+
     def handle_shutdown(self, _signal, _frame):
         """This method is no longer used with the global handler approach"""
         pass

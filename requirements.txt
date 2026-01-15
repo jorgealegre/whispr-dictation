@@ -5,6 +5,4 @@ faster-whisper
 rumps
 pyobjc
 py2app
-boto3
 python-dotenv
-pyperclip
