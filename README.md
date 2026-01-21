@@ -35,6 +35,67 @@ brew install portaudio
 python src/main.py
 ```
 
+### Building a Standalone App
+
+To build a standalone `.app` bundle that you can share with others:
+
+1. Make sure all dependencies are installed:
+
+```bash
+pip install -r requirements.txt
+brew install portaudio
+```
+
+2. Build the application:
+
+```bash
+python setup.py py2app
+```
+
+3. The built app will be in the `dist/` folder as `Whisper Dictation.app`.
+
+4. To distribute, you can:
+   - Zip the `.app` file: `cd dist && zip -r "Whisper Dictation.zip" "Whisper Dictation.app"`
+   - Or create a DMG (see below)
+
+**Note for recipients:** On first launch, macOS will block the app. To open it:
+1. Right-click (or Control-click) on the app
+2. Select "Open" from the context menu
+3. Click "Open" in the dialog that appears
+4. Grant Microphone and Accessibility permissions when prompted
+
+**First Launch:** The app will download the Whisper speech model (~500MB for `small.en`) on first launch. This is a one-time download that gets cached in `~/Library/Caches/WhisperDictation/`.
+
+#### Creating a DMG for Distribution
+
+To create a DMG disk image:
+
+```bash
+# Install create-dmg if you don't have it
+brew install create-dmg
+
+# Create the DMG
+create-dmg \
+  --volname "Whisper Dictation" \
+  --window-pos 200 120 \
+  --window-size 600 400 \
+  --icon-size 100 \
+  --icon "Whisper Dictation.app" 150 200 \
+  --app-drop-link 450 200 \
+  "Whisper Dictation.dmg" \
+  "dist/Whisper Dictation.app"
+```
+
+#### Development Build (Alias Mode)
+
+For faster iteration during development, use alias mode:
+
+```bash
+python setup.py py2app -A
+```
+
+This creates a smaller app that references your source files (not suitable for distribution).
+
 ### Running the Script in the Background
 
 To run the script in the background:

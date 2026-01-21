@@ -1,6 +1,13 @@
 .DS_Store
-build
-dist
+build/
+dist/
+*.dmg
 .env
-__pycache__
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.eggs/
 .vscode/launch.json
+venv/
+.venv/

@@ -6,3 +6,5 @@ rumps
 pyobjc
 py2app
 python-dotenv
+setuptools
+huggingface_hub
